@@ -5,13 +5,13 @@ import requests
 from datetime import datetime, timedelta, timezone
 
 # ====== CONFIGURE THESE ======
-OTX_API_KEY = "c96675e91e953bc5b79273f642c1f4542c10f0793ba5cfc5a9b6ffde4d409a55"
-OTX_BASE_URL = "https://otx.alienvault.com/api/v1"  # OTX v1 external API base [web:2]
+FEED_API_KEY = " "
+FEED_BASE_URL = " " 
 
 # Splunk HEC configuration
-SPLUNK_HEC_URL = "https://192.168.64.1:8088/services/collector/event"  # adjust host as needed
-SPLUNK_HEC_TOKEN = "01af8ecd-ff1b-4c44-a3fc-611bf657fc1b"
-# Set index/sourcetype on the HEC token in Splunk Web. [web:13][web:119]
+SPLUNK_HEC_URL = " "  # Cloud stack URL
+SPLUNK_HEC_TOKEN = " " 
+# Set index/sourcetype on the HEC token in Splunk Web.
 
 # Polling window
 LOOKBACK_MINUTES = 65
@@ -20,8 +20,8 @@ LOOKBACK_MINUTES = 65
 VERIFY_SSL_OTX = True
 
 # OTX request behavior
-MAX_OTX_RETRIES = 3
-OTX_TIMEOUT = 60  # seconds
+MAX_FEED_RETRIES = 3
+FEED_TIMEOUT = 60  # seconds
 
 # =============================
 
@@ -29,11 +29,11 @@ OTX_TIMEOUT = 60  # seconds
 def check_dns():
     """Quick DNS sanity check so failures are clearer."""
     try:
-        socket.getaddrinfo("otx.alienvault.com", 443)
+        socket.getaddrinfo("feddsiteurl.com", 443) # add feed site URL here
     except socket.gaierror as e:
         raise SystemExit(
-            f"DNS lookup for otx.alienvault.com failed: {e}. "
-            "Fix DNS/network on this host, then re-run."
+            f"DNS lookup for site feed failed: {e}. " 
+            "Fix DNS/network on this host, then re-run." 
         )
 
 
@@ -53,15 +53,15 @@ def iso_to_epoch(ts: str) -> float:
     return dt.timestamp()
 
 
-def get_otx_activity(since_timestamp_iso):
+def get_feed_activity(since_timestamp_iso):
     """
-    Pull subscribed pulses from OTX, stopping when results are older than our lookback. [web:2][web:42]
+    Pull subscribed pulses from feed, stopping when results are older than our lookback. [web:2][web:42]
     """
-    base_url = f"{OTX_BASE_URL}/pulses/subscribed"
+    base_url = f"{FEED_BASE_URL}/pulses/subscribed"
     headers = {
-        "X-OTX-API-KEY": OTX_API_KEY,
+        "X-OTX-API-KEY": FEED_API_KEY,
         "Content-Type": "application/json",
-        "User-Agent": "splunk-otx-forwarder/1.4",
+        "User-Agent": " ", # update as needed, could be something like "splunk-feed-forwarder"
     }
 
     url = base_url
@@ -71,34 +71,34 @@ def get_otx_activity(since_timestamp_iso):
     all_pulses = []
 
     while True:
-        for attempt in range(1, MAX_OTX_RETRIES + 1):
+        for attempt in range(1, MAX_FEED_RETRIES + 1):
             try:
                 if first:
                     resp = requests.get(
                         url,
                         headers=headers,
                         params=params,
-                        timeout=OTX_TIMEOUT,
-                        verify=VERIFY_SSL_OTX,
+                        timeout=FEED_TIMEOUT,
+                        verify=VERIFY_SSL_FEED,
                     )
                 else:
                     resp = requests.get(
                         url,
                         headers=headers,
-                        timeout=OTX_TIMEOUT,
-                        verify=VERIFY_SSL_OTX,
+                        timeout=FEED_TIMEOUT,
+                        verify=VERIFY_SSL_FEED,
                     )
                 break
             except requests.exceptions.ReadTimeout as e:
-                if attempt == MAX_OTX_RETRIES:
+                if attempt == MAX_FEED_RETRIES:
                     raise SystemExit(
-                        f"OTX request timed out after {MAX_OTX_RETRIES} attempts: {e}"
+                        f"OTX request timed out after {MAX_FEED_RETRIES} attempts: {e}"
                     )
                 continue
 
         if resp.status_code != 200:
             raise SystemExit(
-                f"OTX HTTP {resp.status_code} for {resp.url}:\n{resp.text}"
+                f"FEED HTTP {resp.status_code} for {resp.url}:\n{resp.text}"
             )
 
         data = resp.json()
@@ -126,7 +126,8 @@ def get_otx_activity(since_timestamp_iso):
         first = False
 
     return all_pulses
-
+    
+# ====== CONFIGURE THESE WITH SPECIFIC ITEMS FROM THREAT FEEDS. THE BELOW EXAMPLE USES "PULSES" FROM AN OTX FEED ======
 
 def build_splunk_events_from_pulse(pulse):
     """
@@ -134,8 +135,8 @@ def build_splunk_events_from_pulse(pulse):
     """
     events = []
 
-    modified = pulse.get("modified")
-    created = pulse.get("created")
+    modified = feed.get("modified")
+    created = feed.get("created")
 
     base_dt = (
         datetime.fromisoformat(modified.replace("Z", "+00:00")) if modified else
@@ -153,7 +154,7 @@ def build_splunk_events_from_pulse(pulse):
     tlp = pulse.get("tlp")
     author_name = (pulse.get("creator") or {}).get("username")
 
-    # Pulse-level event
+    # IoC/specific threat-level event
     pulse_event = {
         "time": base_epoch,
         "event": {
